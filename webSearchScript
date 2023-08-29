@@ -1,0 +1,237 @@
+#!/bin/bash
+
+# SETUP
+functionTracingDebug() {
+    # this is a stub function that does nothing.
+    # It makes the script not crash over the fact that this function doesnt exist.
+    # It will be overwritten by the imporation of ~/.bash/.bash_utility_functions
+    :
+}
+. ~/.bash/.bash_utility_functions
+maxSearchLegnth=300 #characters
+
+# FUNCTIONS
+showHelp() {
+    local _DOCSTRING="Print out the help screen."
+    local _USAGE="Usage: showHelp "
+    functionTracingDebug "$@"
+
+    cat <<-EOF
+    Websearch takes search terms as arguments (or optionally on stdin) and formats them for various online search engines. There is a choice of browser and engine.
+
+    Usage: $0 [-e engine] [-b browser] <-|SEARCH>
+
+    Mandatory arguments to long options are mandatory for short options too.
+        -e, --engine           Search engine requested. Defaults to duckduckgo.com
+        -b, --browser          Browser application to use
+        <SEARCH>               Search terms to search for
+        -                      Accept search term from stdin
+        --                     End parsing of options. Useful for searching for "--browser" etc.
+
+    Searches may begin with trigger letters (like Elinks' search bar) that cause the search to be handled by a specific service. Tirgger words override -e specified engines.
+        <Trigger letter>       <Description>
+        m                      Search for a location in google maps
+        md                     Map directions from home to the given location
+        d                      Define the given word in Merium Webster's online dictionary
+
+    Clipboard:
+        <Search>               <Description>
+        p                      search for the text in the ctrl-c clipboard
+        h                      search for the currently highlighted text
+
+EOF
+}
+parseArgs() {
+    local _DOCSTRING="Parse the arguments for options."
+    local _USAGE="Usage: parseArgs "
+    functionTracingDebug "$@"
+
+    local removeTriggerWord
+
+    while [[ "$1" =~ ^- ]]
+    do
+        case "$1" in
+            -h|--help)
+                showHelp
+                return 5
+                ;;
+            -e|--engine)
+                engine="$2"
+                shift 2
+                ;;
+            -b|--browser)
+                browser="$2"
+                shift 2
+                case "$browser" in
+                    firefox|elinks)
+                        ;;
+                    *)
+                        echo "$Error: Unknown browser $browser" >&2
+                        return 1
+                        ;;
+                esac
+                ;;
+            --)
+                shift
+                search="$*"
+                return 
+                ;;
+            -)
+                shift
+                getSearchFromStdin || return 1
+                return
+                ;;
+            -*)
+                echo "Error: Unknown option: $1" >&2
+                return 1
+        esac
+    done
+
+    # We made it here. What is left (even if nothing) in the args is the search.
+    search="$*"
+
+    # Parse for trigger words (See help text for description)
+    triggerWordCandidate="${search%% *}" # first word of search
+    case "$triggerWordCandidate" in
+        m)
+            engine='google-maps' # override -e option specified engine
+            removeTriggerWord=true
+            ;;
+        md)
+            engine='google-maps-directions-from-home' # override -e option specified engine
+            removeTriggerWord=true
+            ;;
+        d)
+            engine='webster' # override -e option specified engine
+            removeTriggerWord=true
+            ;;
+    esac
+    # Remove trigger word from search if required.
+    if [[ "$removeTriggerWord" == true ]]; then 
+        search="${search#* }" # Remove the first word from the search
+    fi
+
+    if [[ "$search" == p ]]; then # The searcher is asking to use the contents of the system clipboard as the search terms.
+        search="$(xsel -o -b)"
+    fi
+
+    if [[ "$search" == h ]]; then # The searcher is asking to use the contents of the system clipboard as the search terms.
+        search="$(xsel -o 2>/dev/null)"
+    fi
+}
+getSearchFromStdin() {
+    local _DOCSTRING="Gets the search string from standard in."
+    local _USAGE="Usage: getSearchFromStdin "
+    functionTracingDebug "$@"
+
+    search="$(< /dev/stdin)"
+    if [[ "$search" == "" ]]; then
+        echo "No search provided" >&2
+        return 1
+    fi
+}
+validateSearchStringBool() {
+    local _DOCSTRING="Returns bool on valid search string."
+    local _USAGE="Usage: validateSearchStringBool <searchString>"
+    functionTracingDebug "$@"
+
+    local  string
+    minimumArguments 1 "$@" || return 3
+    searchString="$1"
+
+    # If the search string is too long. I took a guess here at 300 characters. May need tuning later.
+    if [[ "${#searchString}" -gt "$maxSearchLegnth" ]]; then 
+        echo "Seach term is too long. Capped at $maxSearchLegnth characters." >&2
+        return 1
+    fi
+}
+encodeSearchString() {
+    local _DOCSTRING="URL encodes search string."
+    local _USAGE="Usage: encodeSearchString <searchString>"
+    functionTracingDebug "$@"
+
+    local  string
+    minimumArguments 1 "$@" || return 3
+    searchString="$1"
+
+    local url
+    local encoded
+
+    if [[ "$searchString" =~ ^http[s]*:// ]]; then # If we were given a url
+        echo "$searchString" # Just go there
+    else # We need to encode the search terms into a engine url.
+        encoded="$(python -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$search")"
+        echo "$encoded"
+    fi
+}
+generateURL() {
+    local _DOCSTRING="Generates a search URL for the given engine and terms."
+    local _USAGE="Usage: generateURL <engine> <search>"
+    functionTracingDebug "$@"
+
+    local  engine search
+    minimumArguments 1 "$@" || return 3
+    engine="$1"
+    search="$2"
+
+    local url prog encoded
+
+    if [[ "$search" =~ ^http[s]*:// ]]; then
+        url="$search" # Given "search" is actually a url itself. Just go there.
+        echo "$url"
+        return 0
+    fi
+
+    encoded="$(encodeSearchString "$search")"
+
+    case "$engine" in
+        duck|duckduck|duckduckgo)
+            url="https://lite.duckduckgo.com/lite/?q=$encoded"
+            ;;
+        wikipedia)
+            url="http://en.wikipedia.org/w/wiki.phtml?search=$encoded"
+            ;;
+        stackoverflow|so)
+            url="https://stackoverflow.com/search?q=$encoded"
+            ;;
+        webster|dict)
+            url="https://www.merriam-webster.com/dictionary/$encoded"
+            ;;
+        google-maps)
+            url="https://www.google.com/maps/search/$encoded"
+            :
+            ;;
+        google-maps-directions-from-home)
+            url="https://www.google.com/maps/dir/248+7th+Ave,+Swarthmore,+PA+19081/$encoded"
+            ;;
+    esac
+    echo "$url"
+}
+
+# MAIN
+main() {
+    local _DOCSTRING="Do a web search for the argument."
+    local _USAGE="Usage: [options] <search|->"
+    functionTracingDebug "$@"
+
+    local  engine search encoded url browser
+
+    # If no args, show help
+    if [[ $# -lt 1 ]]; then
+        showHelp
+        return 0
+    fi
+    
+    # Defaults
+    browser="$(which firefox)"
+    engine="duckduckgo"
+
+    parseArgs "$@"                               || return $?  # Sets environment vars for options and search string.
+    validateSearchStringBool "$search"           || return $?
+    url="$(generateURL "$engine" "$search")"     || return $?
+
+    "$browser" "$url"
+}
+
+# ENTRY POINT
+main "$@"
