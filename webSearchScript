@@ -163,7 +163,7 @@ encodeSearchString() {
     if [[ "$searchString" =~ ^http[s]*:// ]]; then # If we were given a url
         echo "$searchString" # Just go there
     else # We need to encode the search terms into a engine url.
-        encoded="$(python -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$search")"
+        encoded="$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$search")"
         echo "$encoded"
     fi
 }
