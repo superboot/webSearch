@@ -105,6 +105,9 @@ parseArgs() {
             engine='webster' # override -e option specified engine
             removeTriggerWord=true
             ;;
+        t) # Thesaurus
+            engine='thesaurus'
+            removeTriggerWord=true
     esac
     # Remove trigger word from search if required.
     if [[ "$removeTriggerWord" == true ]]; then 
@@ -203,6 +206,9 @@ generateURL() {
             ;;
         google-maps-directions-from-home)
             url="https://www.google.com/maps/dir/248+7th+Ave,+Swarthmore,+PA+19081/$encoded"
+            ;;
+        thesaurus)
+            url="https://www.merriam-webster.com/thesaurus/$encoded"
             ;;
     esac
     echo "$url"
